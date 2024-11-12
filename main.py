@@ -18,9 +18,6 @@ filtered_df = df[df['FDV'] > 500000000].copy()
 # Extract token abbreviations
 filtered_df['Token Abbreviation'] = filtered_df['Coin'].str.extract(r'\((.*?)\)')
 
-# print(filtered_df)
-# print(df)
-
 # Dictionary to store DataFrames for each token
 token_dfs = {}
 
@@ -51,9 +48,6 @@ for token in filtered_df['Token Abbreviation']:
 if not token_dfs:
     raise ValueError("No data was loaded successfully. Please check the CSV files and their formats.")
 
-
-print(df)
-print(token_dfs)
 # Create cohort periods (12-month intervals) with UTC timezone
 cohort_periods = pd.date_range(
     start='2020-07-01', 
@@ -106,7 +100,6 @@ for i, tokens in cohort_tokens.items():
             cohort_mean = cohort_mean.dropna()
             
             if not cohort_mean.empty:
-                # print(cohort_mean)
                 period_start = cohort_periods[i].strftime('%Y-%m')
                 period_end = cohort_periods[i+1].strftime('%Y-%m')
                 
@@ -124,11 +117,50 @@ max_market_cap = max(all_market_caps + all_cohort_means, default=0)
 ax1.set_ylim(bottom=0)  # Ensure the y-axis starts at 0
 ax1.set_ylim(top=max_market_cap * 1.1 if max_market_cap > 0 else 1)  # Add 10% headroom or set a default
 
+# Fetch Bitcoin market cap data
+bitcoin_url = "https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/chart"
+bitcoin_params = {
+    'id': '1',  # Bitcoin's ID
+    'range': 'all'
+}
+
+try:
+    bitcoin_response = requests.get(bitcoin_url, params=bitcoin_params)
+    bitcoin_response.raise_for_status()
+    bitcoin_data = bitcoin_response.json()
+    
+    if 'data' in bitcoin_data and 'points' in bitcoin_data['data']:
+        bitcoin_points = bitcoin_data['data']['points']
+        bitcoin_df = pd.DataFrame.from_dict(bitcoin_points, orient='index')
+        bitcoin_df['timestamp'] = pd.to_datetime(bitcoin_df.index.astype(float), unit='s')
+        
+        if 'v' in bitcoin_df.columns:
+            bitcoin_df = bitcoin_df.rename(columns={'v': 'marketCap'})
+            bitcoin_df['marketCap'] = bitcoin_df['marketCap'].apply(lambda x: x if isinstance(x, (int, float)) else (x[0] if isinstance(x, list) and len(x) > 0 else None))
+        bitcoin_df['marketCap'] = pd.to_numeric(bitcoin_df['marketCap'], errors='coerce') 
+        
+        bitcoin_df = bitcoin_df[bitcoin_df['timestamp'] >= '2020-07-01']
+        
+        # Print the values to be graphed
+        print("Bitcoin Market Cap Data to be Graphed:")
+        print(bitcoin_df[['timestamp', 'marketCap']])
+        
+        # Plot Bitcoin market cap on a new y-axis
+        ax2 = ax1.twinx()
+        ax2.plot(bitcoin_df['timestamp'], bitcoin_df['marketCap'],
+                label='Bitcoin Price', color='orange', linewidth=2)
+        ax2.set_ylabel('Bitcoin Price')
+        ax2.grid(False)
+        ax2.legend(loc='upper right')
+
+except Exception as e:
+    print(f"Error getting Bitcoin market cap data: {e}")
+
 # Print diagnostic information
 print("Max market cap values for individual tokens:", all_market_caps)
 print("Max cohort mean values:", all_cohort_means)
 print("Overall max market cap for scaling:", max_market_cap)
-
+print(bitcoin_df)
 # Customize the plot
 ax1.set_title('Market Cap History Comparison')
 ax1.set_xlabel('Date')
